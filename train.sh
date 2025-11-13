@@ -46,8 +46,8 @@ conda activate gphyt
 sim_name="poseidon_test00"
 # Set up paths
 base_dir="/home/flwi01/coding/DPOT"
-python_exec="${base_dir}/train_well.py"
-checkpoint_path="${base_dir}/results"
+python_exec="${base_dir}/dpot/train_well.py"
+checkpoint_path="${base_dir}/results/${sim_name}"
 data_dir="/home/flwi01/coding/well_datasets"
 config_file="${base_dir}/configs/pretrain_medium.yaml"
 export OMP_NUM_THREADS=1 # (num cpu - num_workers) / num_gpus
@@ -65,7 +65,8 @@ accelerate_args="
 ############################# Training GPM ##########################################
 #####################################################################################
 
-exec_args="--config $config_file"
+exec_args="--config $config_file --data_path $data_dir \
+--checkpoint_path $checkpoint_path"
 
 # Capture Python output and errors in a variable and run the script
 accelerate launch $python_exec $exec_args

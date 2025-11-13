@@ -104,9 +104,13 @@ if __name__ == "__main__":
     parser.add_argument(
         "--config_file", type=str, default="./configs/pretrain_medium.yaml"
     )
+    parser.add_argument("--data_path", type=str)
+    parser.add_argument("--checkpoint_path", type=str)
     args = parser.parse_args()
 
     config = yaml.load(open(args.config_file, "r"), Loader=yaml.FullLoader)
+    config["data_path"] = args.data_path
+    config["log_path"] = args.checkpoint_path
 
     accelerator = Accelerator(split_batches=False)
     device = accelerator.device
@@ -114,125 +118,117 @@ if __name__ == "__main__":
     ################################################################
     # load data and dataloader
     ################################################################
-    train_paths = config.train_paths
-
-    test_paths = config.test_paths
-    args.data_weights = (
-        [1] * len(args.train_paths)
-        if len(config.data_weights) == 1
-        else config.data_weights
-    )
-    print("config", config)
 
     train_dataset = get_dataset(
-        path=config.data_path,
+        path=config["data_path"],
         split_name="train",
-        datasets=config.datasets,
-        num_channels=config.num_channels,
-        min_stride=config.min_stride,
-        max_stride=config.max_stride,
-        use_normalization=config.normalize,
-        full_trajectory_mode=config.full_trajectory_mode,
+        datasets=config["datasets"],
+        num_channels=config["num_channels"],
+        min_stride=config["min_stride"],
+        max_stride=config["max_stride"],
+        use_normalization=config["normalize"],
+        full_trajectory_mode=False,
     )
     test_dataset = get_dataset(
-        path=config.data_path,
+        path=config["data_path"],
         split_name="valid",
-        datasets=config.datasets,
-        num_channels=config.num_channels,
-        min_stride=config.min_stride,
-        max_stride=config.max_stride,
-        use_normalization=config.normalize,
-        full_trajectory_mode=True,
+        datasets=config["datasets"],
+        num_channels=config["num_channels"],
+        min_stride=config["min_stride"],
+        max_stride=config["max_stride"],
+        use_normalization=config["normalize"],
+        full_trajectory_mode=False,
     )
     train_loader = torch.utils.data.DataLoader(
         train_dataset,
-        batch_size=config.batch_size,
+        batch_size=config["batch_size"],
         shuffle=True,
         num_workers=12,
         pin_memory=True,
     )
     test_loader = torch.utils.data.DataLoader(
         test_dataset,
-        batch_size=config.batch_size,
+        batch_size=config["batch_size"],
         drop_last=False,
         shuffle=False,
-        num_workers=config.num_workers,
+        num_workers=config["num_workers"],
         pin_memory=True,
     )
     ################################################################
     # load model
     ################################################################
-    if config.model == "DPOT":
+    if config["model"] == "DPOT":
         model = DPOTNet(
-            img_size=config.res,
-            patch_size=config.patch_size,
-            in_channels=config.num_channels,
-            in_timesteps=config.T_in,
-            out_timesteps=config.T_bundle,
-            out_channels=config.num_channels,
-            normalize=config.normalize,
-            embed_dim=config.width,
-            depth=config.n_layers,
-            n_blocks=config.n_blocks,
-            mlp_ratio=config.mlp_ratio,
-            out_layer_dim=config.out_layer_dim,
-            act=config.act,
-            n_cls=len(config.train_paths),
+            img_size=config["res"],
+            patch_size=config["patch_size"],
+            in_channels=config["num_channels"],
+            in_timesteps=config["T_in"],
+            out_timesteps=config["T_bundle"],
+            out_channels=config["num_channels"],
+            normalize=config["normalize"],
+            embed_dim=config["width"],
+            depth=config["n_layers"],
+            n_blocks=config["n_blocks"],
+            mlp_ratio=config["mlp_ratio"],
+            out_layer_dim=config["out_layer_dim"],
+            act=config["act"],
+            n_cls=len(config["datasets"]),
         ).to(device)
-    elif config.model == "CDPOT":
+    elif config["model"] == "CDPOT":
         model = CDPOTNet(
-            img_size=config.res,
-            patch_size=config.patch_size,
-            in_channels=config.num_channels,
-            in_timesteps=config.T_in,
-            out_timesteps=config.T_bundle,
-            out_channels=config.num_channels,
-            normalize=config.normalize,
-            embed_dim=config.width,
-            modes=config.modes,
-            depth=config.n_layers,
-            n_blocks=config.n_blocks,
-            mlp_ratio=config.mlp_ratio,
-            out_layer_dim=config.out_layer_dim,
-            act=config.act,
-            n_cls=len(config.train_paths),
+            img_size=config["res"],
+            patch_size=config["patch_size"],
+            in_channels=config["num_channels"],
+            in_timesteps=config["T_in"],
+            out_timesteps=config["T_bundle"],
+            out_channels=config["num_channels"],
+            normalize=config["normalize"],
+            embed_dim=config["width"],
+            modes=config["modes"],
+            depth=config["n_layers"],
+            n_blocks=config["n_blocks"],
+            mlp_ratio=config["mlp_ratio"],
+            out_layer_dim=config["out_layer_dim"],
+            act=config["act"],
+            n_cls=len(config["datasets"]),
         ).to(device)
     else:
         raise NotImplementedError
 
-    if config.resume_path:
-        print("Loading models and fine tune from {}".format(config.resume_path))
-        # model.load_state_dict(torch.load(config.resume_path,map_location='cuda:{}'.format(config.gpu))['model'])
+    resume_path = config.get("resume_path", "")
+    if resume_path is not None and resume_path != "":
+        print("Loading models and fine tune from {}".format(config["resume_path"]))
+        # model.load_state_dict(torch.load(config['resume_path'],map_location='cuda:{}'.format(config.gpu))['model'])
         load_model_from_checkpoint(
-            model, torch.load(config.resume_path, map_location="cpu")["model"]
+            model, torch.load(resume_path, map_location="cpu")["model"]
         )
 
     #### set optimizer
     optimizer = Adam(
         model.parameters(),
-        lr=config.lr,
-        betas=(config.beta1, config.beta2),
+        lr=config["lr"],
+        betas=(config["beta1"], config["beta2"]),
         weight_decay=1e-6,
     )
 
     print("Using cycle learning rate schedule")
     scheduler = OneCycleLR(
         optimizer,
-        max_lr=config.lr,
+        max_lr=config["lr"],
         div_factor=1e4,
-        pct_start=(config.warmup_epochs / config.epochs),
+        pct_start=(config["warmup_epochs"] / config["epochs"]),
         final_div_factor=1e4,
         steps_per_epoch=len(train_loader),
-        epochs=config.epochs,
+        epochs=config["epochs"],
     )
 
-    log_path = config.log_path
+    log_path = config["log_path"]
     os.makedirs(log_path, exist_ok=True)
     ckpt_save_epochs = 50
-    if config.use_writer:
+    if config["use_writer"]:
         writer = SummaryWriter(log_dir=log_path)
         fp = open(log_path + "/logs.txt", "w+", buffering=1)
-        json.dump(vars(config), open(log_path + "/params.json", "w"), indent=4)
+        json.dump(config, open(log_path + "/params.json", "w"), indent=4)
         sys.stdout = fp
 
     else:
@@ -249,7 +245,8 @@ if __name__ == "__main__":
     myloss = SimpleLpLoss(size_average=False)
     clsloss = torch.nn.CrossEntropyLoss(reduction="sum")
     iter = 0
-    for ep in range(config.epochs):
+    for ep in range(config["epochs"]):
+        print(f"Epoch {ep} ---------------------")
         model.train()
 
         t1 = t_1 = default_timer()
@@ -272,11 +269,11 @@ if __name__ == "__main__":
             cls = cls.to(device)
 
             ## auto-regressive training loop, support 1. noise injection, 2. long rollout backward, 3. temporal bundling prediction
-            for t in range(0, yy.shape[-2], config.T_bundle):
-                y = yy[..., t : t + config.T_bundle, :]
+            for t in range(0, yy.shape[-2], config["T_bundle"]):
+                y = yy[..., t : t + config["T_bundle"], :]
 
                 ### auto-regressive training
-                xx = xx + config.noise_scale * torch.sum(
+                xx = xx + config["noise_scale"] * torch.sum(
                     xx**2, dim=(1, 2, 3), keepdim=True
                 ) ** 0.5 * torch.randn_like(xx)
                 im, cls_pred = model(xx)
@@ -292,7 +289,10 @@ if __name__ == "__main__":
                     pred = im
                 else:
                     pred = torch.cat((pred, im), dim=-2)
-                xx = torch.cat((xx[..., config.T_bundle :, :], im), dim=-2)
+                xx = torch.cat((xx[..., config["T_bundle"] :, :], im), dim=-2)
+
+            if iter % 100 == 0:
+                print(f"epoch {ep} iter {iter} step loss {loss.item()}")
 
             train_l2_step += loss.item()
             l2_full = myloss(pred, yy, mask=msk)
@@ -304,20 +304,22 @@ if __name__ == "__main__":
             total_loss = loss + 0.0 * cls_loss
             accelerator.backward(total_loss)
             # total_loss.backward()
-            nn.utils.clip_grad_norm_(model.parameters(), config.grad_clip)
+            nn.utils.clip_grad_norm_(model.parameters(), config["grad_clip"])
             optimizer.step()
             scheduler.step()
 
             train_l2_step_avg, train_l2_full_avg = (
-                train_l2_step / len(train_dataset) / (yy.shape[-2] / config.T_bundle),
+                train_l2_step
+                / len(train_dataset)
+                / (yy.shape[-2] / config["T_bundle"]),
                 train_l2_full / len(train_dataset),
             )
             cls_acc = cls_correct / cls_total
             iter += 1
-            if config.use_writer:
+            if config["use_writer"]:
                 writer.add_scalar(
                     "train_loss_step",
-                    loss.item() / (xx.shape[0] * yy.shape[-2] / config.T_bundle),
+                    loss.item() / (xx.shape[0] * yy.shape[-2] / config["T_bundle"]),
                     iter,
                 )
                 writer.add_scalar("train_loss_full", l2_full / xx.shape[0], iter)
@@ -338,19 +340,18 @@ if __name__ == "__main__":
             t_train += default_timer() - t_1
             t_1 = default_timer()
 
-        test_l2_fulls, test_l2_steps = [], []
+        print("start eval")
+        full_loss = 0.0
         model.eval()
         with torch.no_grad():
-            # model.eval()
-            test_l2_full, test_l2_step, ntest = 0.0, 0.0, 0
             for xx, yy, msk, _ in test_loader:
                 loss = 0
                 xx = xx.to(device)
                 yy = yy.to(device)
                 msk = msk.to(device)
 
-                for t in range(0, yy.shape[-2], config.T_bundle):
-                    y = yy[..., t : t + config.T_bundle, :]
+                for t in range(0, yy.shape[-2], config["T_bundle"]):
+                    y = yy[..., t : t + config["T_bundle"], :]
                     im, _ = model(xx)
                     loss += myloss(im, y, mask=msk)
 
@@ -359,29 +360,17 @@ if __name__ == "__main__":
                     else:
                         pred = torch.cat((pred, im), -2)
 
-                    xx = torch.cat((xx[..., config.T_bundle :, :], im), dim=-2)
-                test_l2_step += torch.cat(accelerator.gather_for_metrics((loss,))).sum()
-                metrics_gathered = torch.cat(
-                    accelerator.gather_for_metrics((myloss(pred, yy, mask=msk),))
-                )
-                test_l2_full += metrics_gathered.sum()
-                ntest += metrics_gathered.shape[0] * xx.shape[0]
+                    xx = torch.cat((xx[..., config["T_bundle"] :, :], im), dim=-2)
 
-            test_l2_step_avg, test_l2_full_avg = (
-                test_l2_step / ntest / (yy.shape[-2] / config.T_bundle),
-                test_l2_full.item() / ntest,
-            )
-            test_l2_steps.append(test_l2_step_avg)
-            test_l2_fulls.append(test_l2_full_avg)
-            if config.use_writer:
-                writer.add_scalar(
-                    "test_loss_step_{}".format(test_paths[id]), test_l2_step_avg, ep
-                )
-                writer.add_scalar(
-                    "test_loss_full_{}".format(test_paths[id]), test_l2_full_avg, ep
-                )
+                all_loss_step = accelerator.gather_for_metrics((loss,))
+                all_loss_step = torch.tensor(all_loss_step).sum().item()
+                full_loss += all_loss_step
 
-        if config.use_writer:
+            full_loss = full_loss / len(test_loader)
+            if config["use_writer"]:
+                writer.add_scalar("test_loss_full", full_loss, ep)
+
+        if config["use_writer"]:
             path = log_path + f"/model_{ep}.pth"
             torch.save(
                 {
@@ -396,17 +385,5 @@ if __name__ == "__main__":
         t2 = t_1 = default_timer()
         lr = optimizer.param_groups[0]["lr"]
         print(
-            "epoch {}, time {:.5f}, lr {:.2e}, train l2 step {:.5f} train l2 full {:.5f}, test l2 step {} test l2 full {}, cls acc {:.5f}, time train avg {:.5f} load avg {:.5f} test {:.5f}".format(
-                ep,
-                t2 - t1,
-                lr,
-                train_l2_step_avg,
-                train_l2_full_avg,
-                ", ".join(["{:.5f}".format(val) for val in test_l2_steps]),
-                ", ".join(["{:.5f}".format(val) for val in test_l2_fulls]),
-                cls_acc,
-                t_train / len(train_loader),
-                t_load / len(train_loader),
-                t_test,
-            )
+            f"epoch {ep}, time {t2 - t1:.5f}, lr {lr:.2e}, train l2 step {train_l2_step_avg:.5f} train l2 full {train_l2_full_avg:.5f}, test l2 full {full_loss:.5f}, cls acc {cls_acc:.5f}, time train avg {t_train / len(train_loader):.5f} load avg {t_load / len(train_loader):.5f} test {t_test:.5f}"
         )
