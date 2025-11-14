@@ -1,9 +1,10 @@
 datasets:
     - turbulent_radiative_layer_2D
-    # - cylinder_flow_water
+    # - cylinder_sym_flow_water
     # - cylinder_pipe_flow_water
     # - object_periodic_flow_water
     # - object_sym_flow_water
+    # - object_sym_flow_air
     # - heated_object_pipe_flow_air
     # - cooled_object_pipe_flow_air
     # - rayleigh_benard_obstacle
@@ -11,15 +12,16 @@ datasets:
     # - rayleigh_benard
     # - shear_flow
     # - euler_multi_quadrants_periodicBC
+
 resume_path: null
 
-num_channels: 4
+num_channels: 5
 min_stride: 1
-max_stride: 1
+max_stride: 8
 
 use_writer: True
 
-T_in: 10
+T_in: 4
 T_ar: 1
 T_bundle: 1
 use_ln: 0
@@ -37,7 +39,6 @@ lr: 0.001
 epochs: 1000
 lr_method: cycle
 warmup_epochs: 200
-epochs: 1000
 
 model: DPOT
 opt: adam
@@ -45,16 +46,16 @@ comment: 'M'
 ##########################################################
 ########## Medium model
 ##########################################################
-# out_layer_dim: 32
-# res: 128
-# patch_size: 8
-# noise_scale: 0.0005
-# modes: 32
-# width: 1024
-# mlp_ratio: 4
-# n_blocks: 8
-# n_layers: 12
-# act: gelu
+out_layer_dim: 32
+res: 128
+patch_size: 8
+noise_scale: 0.0005
+modes: 32
+width: 1024
+mlp_ratio: 4
+n_blocks: 8
+n_layers: 12
+act: gelu
 
 
 ###################
@@ -77,13 +78,13 @@ comment: 'M'
 ### Tiny
 ##################
 
-res: 128
-patch_size: 8
-noise_scale: 0.0005
-modes: 32
-width: 512
-mlp_ratio: 1
-n_blocks: 4
-n_layers: 4
-out_layer_dim: 32
-act: gelu
+# res: 128
+# patch_size: 8
+# noise_scale: 0.0005
+# modes: 32
+# width: 512
+# mlp_ratio: 1
+# n_blocks: 4
+# n_layers: 4
+# out_layer_dim: 32
+# act: gelu
