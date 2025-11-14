@@ -42,10 +42,10 @@ conda activate gphyt
 # debug=true
 sim_name="dpot_test00"
 # Set up paths
-base_dir="/home/flwi01/coding/DPOT"
+base_dir="/hpcwork/rwth1802/coding/DPOT"
 python_exec="${base_dir}/dpot/train_well.py"
 checkpoint_path="${base_dir}/results/${sim_name}"
-data_dir="/home/flwi01/coding/well_datasets"
+data_dir="/hpcwork/rwth1802/coding/General-Physics-Transformer/data/datasets"
 config_file="${base_dir}/configs/pretrain_medium.yaml"
 export OMP_NUM_THREADS=1 # (num cpu - num_workers) / num_gpus
 
@@ -54,8 +54,7 @@ export OMP_NUM_THREADS=1 # (num cpu - num_workers) / num_gpus
 
 
 accelerate_args="
---config_file ./configs/accel_config.yaml \
---num_cpu_threads_per_process 8"
+--config_file ${base_dir}/configs/accel_config.yaml"
 
 
 #####################################################################################
@@ -66,4 +65,5 @@ exec_args="--config $config_file --data_path $data_dir \
 --checkpoint_path $checkpoint_path"
 
 # Capture Python output and errors in a variable and run the script
-accelerate launch $python_exec $exec_args
+echo "Starting training"
+accelerate launch $accelerate_args $python_exec $exec_args

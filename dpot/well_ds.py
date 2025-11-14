@@ -60,7 +60,7 @@ class PhysicsDataset(WellDataset):
 
         super().__init__(
             path=str(data_dir),
-            normalization_path=str(data_dir.parents[1] / "stats.yaml"),
+            normalization_path=str(data_dir.parents[0] / "stats.yaml"),
             n_steps_input=T_in,
             n_steps_output=T_out,
             use_normalization=use_normalization,
@@ -120,6 +120,9 @@ class SuperDataset:
         If None, uses all samples from each dataset.
         By default None.
 
+    dataset_to_class_idx : Optional[dict[str, int]]
+        Mapping from dataset name to original class index.
+        By default None.
 
     seed : Optional[int]
         Random seed for reproducibility.
@@ -130,10 +133,13 @@ class SuperDataset:
         self,
         datasets: dict[str, PhysicsDataset],
         max_samples_per_ds: Optional[int | list[int]] = None,
+        dataset_to_class_idx: Optional[dict[str, int]] = None,
         seed: Optional[int] = None,
     ):
         self.datasets = datasets
         self.dataset_list = list(datasets.values())
+        self.dataset_names = list(datasets.keys())
+        self.dataset_to_class_idx = dataset_to_class_idx
 
         if isinstance(max_samples_per_ds, int):
             self.max_samples_per_ds = [max_samples_per_ds] * len(datasets)
@@ -194,9 +200,16 @@ class SuperDataset:
                 x, y, mask = self.dataset_list[i][
                     actual_index
                 ]  # (time, h, w, n_channels)
+
+                # Map dataset variant to original class index
+                if self.dataset_to_class_idx is not None:
+                    dataset_name = self.dataset_names[i]
+                    class_idx = self.dataset_to_class_idx[dataset_name]
+                else:
+                    class_idx = i
                 break
             index -= length
-        return x, y, mask, i
+        return x, y, mask, class_idx
 
 
 def get_dataset(
@@ -206,6 +219,8 @@ def get_dataset(
     num_channels: int,
     min_stride: int = 1,
     max_stride: int = 1,
+    T_in: int = 10,
+    T_out: int = 1,
     use_normalization: bool = True,
     full_trajectory_mode: bool = False,
     nan_to_zero: bool = True,
@@ -213,20 +228,26 @@ def get_dataset(
     """ """
 
     all_ds = {}
-    for ds_name in datasets:
+    dataset_to_class_idx = {}  # Map dataset variant name to original dataset index
+    for ds_idx, ds_name in enumerate(datasets):
         ds_path = Path(path) / f"{ds_name}/data/{split_name}"
         if ds_path.exists():
-            dataset = PhysicsDataset(
-                data_dir=Path(path) / f"{ds_name}/data/{split_name}",
-                use_normalization=use_normalization,
-                dt_stride=[min_stride, max_stride],
-                full_trajectory_mode=full_trajectory_mode,
-                nan_to_zero=nan_to_zero,
-                num_channels=num_channels,
-            )
-            all_ds[ds_name] = dataset
+            for stride in range(min_stride, max_stride + 1):
+                name = f"{ds_name}_stride{stride}"
+                dataset = PhysicsDataset(
+                    data_dir=Path(path) / f"{ds_name}/data/{split_name}",
+                    use_normalization=use_normalization,
+                    T_in=T_in,
+                    T_out=T_out,
+                    dt_stride=stride,
+                    full_trajectory_mode=full_trajectory_mode,
+                    nan_to_zero=nan_to_zero,
+                    num_channels=num_channels,
+                )
+                all_ds[name] = dataset
+                dataset_to_class_idx[name] = ds_idx  # Map to original dataset index
 
         else:
             print(f"Dataset path {ds_path} does not exist. Skipping.")
 
-    return SuperDataset(all_ds)
+    return SuperDataset(all_ds, dataset_to_class_idx=dataset_to_class_idx)

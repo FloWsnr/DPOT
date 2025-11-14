@@ -1,17 +1,17 @@
 datasets:
-    - turbulent_radiative_layer_2D
-    # - cylinder_sym_flow_water
-    # - cylinder_pipe_flow_water
-    # - object_periodic_flow_water
-    # - object_sym_flow_water
-    # - object_sym_flow_air
-    # - heated_object_pipe_flow_air
-    # - cooled_object_pipe_flow_air
-    # - rayleigh_benard_obstacle
-    # - twophase_flow
-    # - rayleigh_benard
-    # - shear_flow
-    # - euler_multi_quadrants_periodicBC
+    # - turbulent_radiative_layer_2D
+    - cylinder_sym_flow_water
+    - cylinder_pipe_flow_water
+    - object_periodic_flow_water
+    - object_sym_flow_water
+    - object_sym_flow_air
+    - heated_object_pipe_flow_air
+    - cooled_object_pipe_flow_air
+    - rayleigh_benard_obstacle
+    - twophase_flow
+    - rayleigh_benard
+    - shear_flow
+    - euler_multi_quadrants_periodicBC
 
 resume_path: null
 
@@ -26,19 +26,19 @@ T_ar: 1
 T_bundle: 1
 use_ln: 0
 normalize: True
-grad_clip: 10000.0
+grad_clip: 10.0
 
 
 
-batch_size: 20
+batch_size: 128
 num_workers: 8
 
 beta1: 0.9
 beta2: 0.9
-lr: 0.001
-epochs: 1000
+lr: 0.0001
+epochs: 4
 lr_method: cycle
-warmup_epochs: 200
+warmup_epochs: 1
 
 model: DPOT
 opt: adam

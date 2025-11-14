@@ -126,6 +126,8 @@ if __name__ == "__main__":
         num_channels=config["num_channels"],
         min_stride=config["min_stride"],
         max_stride=config["max_stride"],
+        T_in=config["T_in"],
+        T_out=config["T_bundle"],
         use_normalization=config["normalize"],
         full_trajectory_mode=False,
     )
@@ -136,6 +138,8 @@ if __name__ == "__main__":
         num_channels=config["num_channels"],
         min_stride=config["min_stride"],
         max_stride=config["max_stride"],
+        T_in=config["T_in"],
+        T_out=config["T_bundle"],
         use_normalization=config["normalize"],
         full_trajectory_mode=False,
     )
@@ -291,9 +295,6 @@ if __name__ == "__main__":
                     pred = torch.cat((pred, im), dim=-2)
                 xx = torch.cat((xx[..., config["T_bundle"] :, :], im), dim=-2)
 
-            if iter % 100 == 0:
-                print(f"epoch {ep} iter {iter} step loss {loss.item()}")
-
             train_l2_step += loss.item()
             l2_full = myloss(pred, yy, mask=msk)
             train_l2_full += l2_full.item()
@@ -339,6 +340,19 @@ if __name__ == "__main__":
 
             t_train += default_timer() - t_1
             t_1 = default_timer()
+            if iter % 100 == 0:
+                print(f"epoch {ep} iter {iter} step loss {loss.item()}")
+
+            if iter % 1000 == 0:
+                path = log_path + f"/model_{ep}.pth"
+                torch.save(
+                    {
+                        "config": config,
+                        "model": model.state_dict(),
+                        "optimizer": optimizer.state_dict(),
+                    },
+                    path,
+                )
 
         print("start eval")
         full_loss = 0.0
