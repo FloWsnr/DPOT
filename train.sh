@@ -2,10 +2,10 @@
 
 ### Task name
 #SBATCH --account=xxxxxxx
-#SBATCH --job-name=train_gphyt
+#SBATCH --job-name=train_dpot
 
 ### Output file
-#SBATCH --output=results/slrm_logs/train_gphyt_%j.out
+#SBATCH --output=results/slrm_logs/train_dpot_%j.out
 
 
 ### Start a parallel job for a distributed-memory system on several nodes
@@ -43,7 +43,7 @@ conda activate gphyt
 ######################################################################################
 # debug mode
 # debug=true
-sim_name="poseidon_test00"
+sim_name="dpot_test00"
 # Set up paths
 base_dir="/home/flwi01/coding/DPOT"
 python_exec="${base_dir}/dpot/train_well.py"

@@ -21,7 +21,7 @@ from dpot.utils.utilities import count_parameters, load_model_from_checkpoint
 from dpot.well_ds import get_dataset
 from dpot.models.dpot import DPOTNet
 from dpot.models.dpot_res import CDPOTNet
-from dpot.loss_fns import RMSE, RVMSELoss
+from dpot.loss_fns import RMSE, RVMSELoss, NMSELoss
 
 
 ################################################################
@@ -109,6 +109,7 @@ def init_wandb(config):
         project="Large-Physics-Foundation-Model",
         config=config,
         name=f"{name}",
+        dir=str(log_path),
     )
     return run
 
@@ -257,7 +258,7 @@ if __name__ == "__main__":
     ################################################################
     # Main function for pretraining
     ################################################################
-    criterion = torch.nn.MSELoss(reduction="sum")
+    criterion = NMSELoss()
     rmse = RMSE()
     rvmse = RVMSELoss()
     iter = 0
@@ -279,11 +280,16 @@ if __name__ == "__main__":
             xx = xx.to(device)  ## B, n, n, T_in, C
             yy = yy.to(device)  ## B, n, n, T_ar, C
 
+            # log_msg(f"mean xx: {xx.mean().item()}, mean yy: {yy.mean().item()}")
+            # log_msg(f"std xx: {xx.std().item()}, std yy: {yy.std().item()}")
+
             ### auto-regressive training
             xx = xx + config["noise_scale"] * torch.sum(
                 xx**2, dim=(1, 2, 3), keepdim=True
             ) ** 0.5 * torch.randn_like(xx)
-            im, cls_pred = model(xx)
+
+            # log_msg(f"xx shape: {xx.shape}, yy shape: {yy.shape}")
+            im, _ = model(xx)
 
             loss = criterion(im, yy)
 
@@ -313,27 +319,28 @@ if __name__ == "__main__":
                 )
 
             with torch.no_grad():
-                mse_loss = criterion(im, yy)
+                nmse_loss = criterion(im, yy)
                 rmse_loss = rmse(im, yy)
                 rvmse_loss = rvmse(im, yy)
             # sync between processes
-            mse_loss = accelerator.gather_for_metrics((mse_loss,))
-            mse_loss = torch.tensor(mse_loss).sum().item()
+            nmse_loss = accelerator.gather_for_metrics((nmse_loss,))
+            nmse_loss = torch.tensor(nmse_loss).sum().item()
             rmse_loss = accelerator.gather_for_metrics((rmse_loss,))
             rmse_loss = torch.tensor(rmse_loss).sum().item()
             rvmse_loss = accelerator.gather_for_metrics((rvmse_loss,))
             rvmse_loss = torch.tensor(rvmse_loss).sum().item()
 
-            run.log(
-                {
-                    "train/mse": mse_loss,
-                    "train/rmse": rmse_loss,
-                    "train/rvmse": rvmse_loss,
-                }
-            )
+            if os.environ.get("RANK", "0") == "0":
+                run.log(
+                    {
+                        "train/nmse": nmse_loss,
+                        "train/rmse": rmse_loss,
+                        "train/rvmse": rvmse_loss,
+                    }
+                )
 
         log_msg("start eval")
-        mse_loss = torch.tensor(0.0).to(device)
+        nmse_loss = torch.tensor(0.0).to(device)
         rmse_loss = torch.tensor(0.0).to(device)
         rvmse_loss = torch.tensor(0.0).to(device)
         model.eval()
@@ -343,31 +350,32 @@ if __name__ == "__main__":
                 yy = yy.to(device)
 
                 im, _ = model(xx)
-                mse_loss += criterion(im, yy)
+                nmse_loss += criterion(im, yy)
                 rmse_loss += rmse(im, yy)
                 rvmse_loss += rvmse(im, yy)
 
-            mse_loss = mse_loss / len(test_loader)
+            nmse_loss = nmse_loss / len(test_loader)
             rmse_loss = rmse_loss / len(test_loader)
             rvmse_loss = rvmse_loss / len(test_loader)
 
             # sync between processes
-            mse_loss = accelerator.gather_for_metrics((mse_loss,))
-            mse_loss = torch.tensor(mse_loss).mean().item()
+            nmse_loss = accelerator.gather_for_metrics((nmse_loss,))
+            nmse_loss = torch.tensor(nmse_loss).mean().item()
             rmse_loss = accelerator.gather_for_metrics((rmse_loss,))
             rmse_loss = torch.tensor(rmse_loss).mean().item()
             rvmse_loss = accelerator.gather_for_metrics((rvmse_loss,))
             rvmse_loss = torch.tensor(rvmse_loss).mean().item()
 
-            run.log(
-                {
-                    "test/mse": mse_loss,
-                    "test/rmse": rmse_loss,
-                    "test/rvmse": rvmse_loss,
-                }
-            )
+            if os.environ.get("RANK", "0") == "0":
+                run.log(
+                    {
+                        "test/nmse": nmse_loss,
+                        "test/rmse": rmse_loss,
+                        "test/rvmse": rvmse_loss,
+                    }
+                )
 
-        if config["use_writer"]:
+        if os.environ.get("RANK", "0") == "0":
             path = log_path + f"/model_{ep}.pth"
             torch.save(
                 {
@@ -381,6 +389,6 @@ if __name__ == "__main__":
         t_test = default_timer() - t_1
         t2 = t_1 = default_timer()
         lr = optimizer.param_groups[0]["lr"]
-        log_msg(f"epoch {ep}, time {t2 - t1:.5f}, lr {lr:.2e}, mse: {mse_loss:.5f}")
+        log_msg(f"epoch {ep}, time {t2 - t1:.5f}, lr {lr:.2e}, nmse: {nmse_loss:.5f}")
     log_msg("Training done.")
     run.finish()

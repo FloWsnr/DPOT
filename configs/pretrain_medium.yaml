@@ -1,21 +1,21 @@
 datasets:
-    # - turbulent_radiative_layer_2D
-    - cylinder_sym_flow_water
-    - cylinder_pipe_flow_water
-    - object_periodic_flow_water
-    - object_sym_flow_water
-    - object_sym_flow_air
-    - heated_object_pipe_flow_air
-    - cooled_object_pipe_flow_air
-    - rayleigh_benard_obstacle
-    - twophase_flow
-    - rayleigh_benard
-    - shear_flow
-    - euler_multi_quadrants_periodicBC
+    - turbulent_radiative_layer_2D
+    # - cylinder_sym_flow_water
+    # - cylinder_pipe_flow_water
+    # - object_periodic_flow_water
+    # - object_sym_flow_water
+    # - object_sym_flow_air
+    # - heated_object_pipe_flow_air
+    # - cooled_object_pipe_flow_air
+    # - rayleigh_benard_obstacle
+    # - twophase_flow
+    # - rayleigh_benard
+    # - shear_flow
+    # - euler_multi_quadrants_periodicBC
 
 resume_path: null
 
-num_channels: 5
+num_channels: 4
 min_stride: 1
 max_stride: 8
 
@@ -30,7 +30,7 @@ grad_clip: 10.0
 
 
 
-batch_size: 128
+batch_size: 16
 num_workers: 8
 
 beta1: 0.9
@@ -46,16 +46,16 @@ comment: 'M'
 ##########################################################
 ########## Medium model
 ##########################################################
-out_layer_dim: 32
-res: 128
-patch_size: 8
-noise_scale: 0.0005
-modes: 32
-width: 1024
-mlp_ratio: 4
-n_blocks: 8
-n_layers: 12
-act: gelu
+# out_layer_dim: 32
+# res: 128
+# patch_size: 8
+# noise_scale: 0.0005
+# modes: 32
+# width: 1024
+# mlp_ratio: 4
+# n_blocks: 8
+# n_layers: 12
+# act: gelu
 
 
 ###################
@@ -78,13 +78,13 @@ act: gelu
 ### Tiny
 ##################
 
-# res: 128
-# patch_size: 8
-# noise_scale: 0.0005
-# modes: 32
-# width: 512
-# mlp_ratio: 1
-# n_blocks: 4
-# n_layers: 4
-# out_layer_dim: 32
-# act: gelu
+res: 128
+patch_size: 8
+noise_scale: 0.0005
+modes: 32
+width: 512
+mlp_ratio: 1
+n_blocks: 4
+n_layers: 4
+out_layer_dim: 32
+act: gelu

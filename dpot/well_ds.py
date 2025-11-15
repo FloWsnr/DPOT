@@ -58,9 +58,15 @@ class PhysicsDataset(WellDataset):
             min_dt_stride = dt_stride
             max_dt_stride = dt_stride
 
+        # search for stats.yaml in parent directory
+        for p in (0, 1):
+            n_path = data_dir.parents[p] / "stats.yaml"
+            if n_path.exists():
+                break
+
         super().__init__(
             path=str(data_dir),
-            normalization_path=str(data_dir.parents[0] / "stats.yaml"),
+            normalization_path=str(n_path),
             n_steps_input=T_in,
             n_steps_output=T_out,
             use_normalization=use_normalization,
