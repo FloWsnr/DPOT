@@ -129,7 +129,11 @@ if __name__ == "__main__":
     config["data_path"] = args.data_path
     config["log_path"] = args.checkpoint_path
 
-    accelerator = Accelerator(split_batches=False)
+    # Enable unused parameter detection for DDP
+    from accelerate import DistributedDataParallelKwargs
+
+    ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
+    accelerator = Accelerator(split_batches=False, kwargs_handlers=[ddp_kwargs])
     device = accelerator.device
 
     ################################################################
@@ -164,13 +168,13 @@ if __name__ == "__main__":
         train_dataset,
         batch_size=config["batch_size"],
         shuffle=True,
-        num_workers=12,
+        num_workers=config["num_workers"],
         pin_memory=True,
     )
     test_loader = torch.utils.data.DataLoader(
         test_dataset,
         batch_size=config["batch_size"],
-        drop_last=False,
+        drop_last=True,
         shuffle=False,
         num_workers=config["num_workers"],
         pin_memory=True,
@@ -249,7 +253,10 @@ if __name__ == "__main__":
 
     count_parameters(model)
 
-    run = init_wandb(config)
+    if os.environ.get("RANK", "0") == "0":
+        run = init_wandb(config)
+    else:
+        run = None
 
     ##multi-gpu
     model, optimizer, scheduler, train_loader, test_loader = accelerator.prepare(
@@ -273,7 +280,9 @@ if __name__ == "__main__":
 
         torch.cuda.empty_cache()
 
+        train_steps = 0
         for xx, yy, _, _ in train_loader:
+            train_steps += 1
             t_load += default_timer() - t_1
             t_1 = default_timer()
 
@@ -319,18 +328,17 @@ if __name__ == "__main__":
                 )
 
             with torch.no_grad():
-                nmse_loss = criterion(im, yy)
-                rmse_loss = rmse(im, yy)
-                rvmse_loss = rvmse(im, yy)
-            # sync between processes
-            nmse_loss = accelerator.gather_for_metrics((nmse_loss,))
-            nmse_loss = torch.tensor(nmse_loss).sum().item()
-            rmse_loss = accelerator.gather_for_metrics((rmse_loss,))
-            rmse_loss = torch.tensor(rmse_loss).sum().item()
-            rvmse_loss = accelerator.gather_for_metrics((rvmse_loss,))
-            rvmse_loss = torch.tensor(rvmse_loss).sum().item()
-
-            if os.environ.get("RANK", "0") == "0":
+                nmse_loss = criterion(im.detach(), yy)
+                rmse_loss = rmse(im.detach(), yy)
+                rvmse_loss = rvmse(im.detach(), yy)
+                # sync between processes
+                nmse_loss = accelerator.gather_for_metrics(nmse_loss)
+                nmse_loss = nmse_loss.mean().item()
+                rmse_loss = accelerator.gather_for_metrics(rmse_loss)
+                rmse_loss = rmse_loss.mean().item()
+                rvmse_loss = accelerator.gather_for_metrics(rvmse_loss)
+                rvmse_loss = rvmse_loss.mean().item()
+            if run is not None:
                 run.log(
                     {
                         "train/nmse": nmse_loss,
@@ -339,13 +347,20 @@ if __name__ == "__main__":
                     }
                 )
 
+            if config["epoch_length"] < train_steps:
+                break
+
         log_msg("start eval")
         nmse_loss = torch.tensor(0.0).to(device)
         rmse_loss = torch.tensor(0.0).to(device)
         rvmse_loss = torch.tensor(0.0).to(device)
         model.eval()
+
+        eval_steps = 0
         with torch.no_grad():
             for xx, yy, _, _ in test_loader:
+                eval_steps += 1
+
                 xx = xx.to(device)
                 yy = yy.to(device)
 
@@ -354,19 +369,22 @@ if __name__ == "__main__":
                 rmse_loss += rmse(im, yy)
                 rvmse_loss += rvmse(im, yy)
 
+            if eval_steps < config["eval_length"]:
+                break
+
             nmse_loss = nmse_loss / len(test_loader)
             rmse_loss = rmse_loss / len(test_loader)
             rvmse_loss = rvmse_loss / len(test_loader)
 
             # sync between processes
-            nmse_loss = accelerator.gather_for_metrics((nmse_loss,))
-            nmse_loss = torch.tensor(nmse_loss).mean().item()
-            rmse_loss = accelerator.gather_for_metrics((rmse_loss,))
-            rmse_loss = torch.tensor(rmse_loss).mean().item()
-            rvmse_loss = accelerator.gather_for_metrics((rvmse_loss,))
-            rvmse_loss = torch.tensor(rvmse_loss).mean().item()
+            nmse_loss = accelerator.gather_for_metrics(nmse_loss)
+            nmse_loss = nmse_loss.mean().item()
+            rmse_loss = accelerator.gather_for_metrics(rmse_loss)
+            rmse_loss = rmse_loss.mean().item()
+            rvmse_loss = accelerator.gather_for_metrics(rvmse_loss)
+            rvmse_loss = rvmse_loss.mean().item()
 
-            if os.environ.get("RANK", "0") == "0":
+            if run is not None:
                 run.log(
                     {
                         "test/nmse": nmse_loss,
@@ -391,4 +409,5 @@ if __name__ == "__main__":
         lr = optimizer.param_groups[0]["lr"]
         log_msg(f"epoch {ep}, time {t2 - t1:.5f}, lr {lr:.2e}, nmse: {nmse_loss:.5f}")
     log_msg("Training done.")
-    run.finish()
+    if run is not None:
+        run.finish()
