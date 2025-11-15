@@ -1,29 +1,27 @@
-import sys
 import os
 
-import json
-import time
 import argparse
 import torch
 import numpy as np
 import torch.nn as nn
 
+from pathlib import Path
+
 import yaml
+
+import wandb
 
 from accelerate import Accelerator
 from timeit import default_timer
 from torch.optim.lr_scheduler import (
     OneCycleLR,
 )
-from torch.utils.tensorboard import SummaryWriter
-from dpot.utils.optimizer import Adam, Lamb
-from dpot.utils.utilities import count_parameters, get_grid, load_model_from_checkpoint
-from dpot.utils.criterion import SimpleLpLoss
+from dpot.utils.optimizer import Adam
+from dpot.utils.utilities import count_parameters, load_model_from_checkpoint
 from dpot.well_ds import get_dataset
-from dpot.utils.make_master_file import DATASET_DICT
-from dpot.models.fno import FNO2d
 from dpot.models.dpot import DPOTNet
 from dpot.models.dpot_res import CDPOTNet
+from dpot.loss_fns import RMSE, RVMSELoss
 
 
 ################################################################
@@ -95,6 +93,24 @@ def get_args():
     parser.add_argument("--log_path", type=str, default="")
     args = parser.parse_args()
     return args
+
+
+def log_msg(msg: str):
+    if os.environ.get("RANK", "0") == "0":
+        print(msg)
+
+
+def init_wandb(config):
+    log_path = config["log_path"]
+    log_path = Path(log_path)
+    name = log_path.name
+
+    run = wandb.init(
+        project="Large-Physics-Foundation-Model",
+        config=config,
+        name=f"{name}",
+    )
+    return run
 
 
 if __name__ == "__main__":
@@ -201,7 +217,7 @@ if __name__ == "__main__":
 
     resume_path = config.get("resume_path", "")
     if resume_path is not None and resume_path != "":
-        print("Loading models and fine tune from {}".format(config["resume_path"]))
+        log_msg("Loading models and fine tune from {}".format(config["resume_path"]))
         # model.load_state_dict(torch.load(config['resume_path'],map_location='cuda:{}'.format(config.gpu))['model'])
         load_model_from_checkpoint(
             model, torch.load(resume_path, map_location="cpu")["model"]
@@ -215,7 +231,7 @@ if __name__ == "__main__":
         weight_decay=1e-6,
     )
 
-    print("Using cycle learning rate schedule")
+    log_msg("Using cycle learning rate schedule")
     scheduler = OneCycleLR(
         optimizer,
         max_lr=config["lr"],
@@ -229,15 +245,10 @@ if __name__ == "__main__":
     log_path = config["log_path"]
     os.makedirs(log_path, exist_ok=True)
     ckpt_save_epochs = 50
-    if config["use_writer"]:
-        writer = SummaryWriter(log_dir=log_path)
-        fp = open(log_path + "/logs.txt", "w+", buffering=1)
-        json.dump(config, open(log_path + "/params.json", "w"), indent=4)
-        sys.stdout = fp
 
-    else:
-        writer = None
     count_parameters(model)
+
+    run = init_wandb(config)
 
     ##multi-gpu
     model, optimizer, scheduler, train_loader, test_loader = accelerator.prepare(
@@ -246,104 +257,51 @@ if __name__ == "__main__":
     ################################################################
     # Main function for pretraining
     ################################################################
-    myloss = SimpleLpLoss(size_average=False)
-    clsloss = torch.nn.CrossEntropyLoss(reduction="sum")
+    criterion = torch.nn.MSELoss(reduction="sum")
+    rmse = RMSE()
+    rvmse = RVMSELoss()
     iter = 0
     for ep in range(config["epochs"]):
-        print(f"Epoch {ep} ---------------------")
+        log_msg(f"Epoch {ep} ---------------------")
         model.train()
 
         t1 = t_1 = default_timer()
         t_load, t_train = 0.0, 0.0
-        train_l2_step = 0
         train_l2_full = 0
-        cls_total, cls_correct, cls_acc = 0, 0, 0.0
         loss_previous = np.inf
 
         torch.cuda.empty_cache()
 
-        for xx, yy, msk, cls in train_loader:
+        for xx, yy, _, _ in train_loader:
             t_load += default_timer() - t_1
             t_1 = default_timer()
 
-            loss, cls_loss = 0.0, 0.0
             xx = xx.to(device)  ## B, n, n, T_in, C
             yy = yy.to(device)  ## B, n, n, T_ar, C
-            msk = msk.to(device)
-            cls = cls.to(device)
 
-            ## auto-regressive training loop, support 1. noise injection, 2. long rollout backward, 3. temporal bundling prediction
-            for t in range(0, yy.shape[-2], config["T_bundle"]):
-                y = yy[..., t : t + config["T_bundle"], :]
+            ### auto-regressive training
+            xx = xx + config["noise_scale"] * torch.sum(
+                xx**2, dim=(1, 2, 3), keepdim=True
+            ) ** 0.5 * torch.randn_like(xx)
+            im, cls_pred = model(xx)
 
-                ### auto-regressive training
-                xx = xx + config["noise_scale"] * torch.sum(
-                    xx**2, dim=(1, 2, 3), keepdim=True
-                ) ** 0.5 * torch.randn_like(xx)
-                im, cls_pred = model(xx)
-                loss += myloss(im, y, mask=msk)
-
-                ### classification
-                pred_labels = torch.argmax(cls_pred, dim=1)
-                cls_loss += clsloss(cls_pred, cls.squeeze())
-                cls_correct += (pred_labels == cls.squeeze()).sum().item()
-                cls_total += cls.shape[0]
-
-                if t == 0:
-                    pred = im
-                else:
-                    pred = torch.cat((pred, im), dim=-2)
-                xx = torch.cat((xx[..., config["T_bundle"] :, :], im), dim=-2)
-
-            train_l2_step += loss.item()
-            l2_full = myloss(pred, yy, mask=msk)
-            train_l2_full += l2_full.item()
+            loss = criterion(im, yy)
 
             optimizer.zero_grad()
-            # avg_loss = loss / xx.shape[0]
-            # avg_loss.backward()
-            total_loss = loss + 0.0 * cls_loss
-            accelerator.backward(total_loss)
+            accelerator.backward(loss)
             # total_loss.backward()
             nn.utils.clip_grad_norm_(model.parameters(), config["grad_clip"])
             optimizer.step()
             scheduler.step()
 
-            train_l2_step_avg, train_l2_full_avg = (
-                train_l2_step
-                / len(train_dataset)
-                / (yy.shape[-2] / config["T_bundle"]),
-                train_l2_full / len(train_dataset),
-            )
-            cls_acc = cls_correct / cls_total
             iter += 1
-            if config["use_writer"]:
-                writer.add_scalar(
-                    "train_loss_step",
-                    loss.item() / (xx.shape[0] * yy.shape[-2] / config["T_bundle"]),
-                    iter,
-                )
-                writer.add_scalar("train_loss_full", l2_full / xx.shape[0], iter)
-
-                # ## reset model
-                # if (
-                #     loss.item() > 10 * loss_previous
-                # ):  # or (ep > 50 and l2_full / xx.shape[0] > 0.9):
-                #     print("loss explodes, loading model from previous epoch")
-                #     checkpoint = torch.load(
-                #         model_path_fun(epoch=(ep // ckpt_save_epochs)),
-                #         map_location="cuda:{}".format(config.gpu),
-                #     )
-                #     model.load_state_dict(checkpoint["model"])
-                #     optimizer.load_state_dict(checkpoint["optimizer"])
-                #     loss_previous = loss.item()
 
             t_train += default_timer() - t_1
             t_1 = default_timer()
             if iter % 100 == 0:
-                print(f"epoch {ep} iter {iter} step loss {loss.item()}")
+                log_msg(f"epoch {ep} iter {iter} step loss {loss.item()}")
 
-            if iter % 1000 == 0:
+            if iter % 1000 == 0 and os.environ.get("RANK", "0") == "0":
                 path = log_path + f"/model_{ep}.pth"
                 torch.save(
                     {
@@ -354,35 +312,60 @@ if __name__ == "__main__":
                     path,
                 )
 
-        print("start eval")
-        full_loss = 0.0
+            with torch.no_grad():
+                mse_loss = criterion(im, yy)
+                rmse_loss = rmse(im, yy)
+                rvmse_loss = rvmse(im, yy)
+            # sync between processes
+            mse_loss = accelerator.gather_for_metrics((mse_loss,))
+            mse_loss = torch.tensor(mse_loss).sum().item()
+            rmse_loss = accelerator.gather_for_metrics((rmse_loss,))
+            rmse_loss = torch.tensor(rmse_loss).sum().item()
+            rvmse_loss = accelerator.gather_for_metrics((rvmse_loss,))
+            rvmse_loss = torch.tensor(rvmse_loss).sum().item()
+
+            run.log(
+                {
+                    "train/mse": mse_loss,
+                    "train/rmse": rmse_loss,
+                    "train/rvmse": rvmse_loss,
+                }
+            )
+
+        log_msg("start eval")
+        mse_loss = torch.tensor(0.0).to(device)
+        rmse_loss = torch.tensor(0.0).to(device)
+        rvmse_loss = torch.tensor(0.0).to(device)
         model.eval()
         with torch.no_grad():
-            for xx, yy, msk, _ in test_loader:
-                loss = 0
+            for xx, yy, _, _ in test_loader:
                 xx = xx.to(device)
                 yy = yy.to(device)
-                msk = msk.to(device)
 
-                for t in range(0, yy.shape[-2], config["T_bundle"]):
-                    y = yy[..., t : t + config["T_bundle"], :]
-                    im, _ = model(xx)
-                    loss += myloss(im, y, mask=msk)
+                im, _ = model(xx)
+                mse_loss += criterion(im, yy)
+                rmse_loss += rmse(im, yy)
+                rvmse_loss += rvmse(im, yy)
 
-                    if t == 0:
-                        pred = im
-                    else:
-                        pred = torch.cat((pred, im), -2)
+            mse_loss = mse_loss / len(test_loader)
+            rmse_loss = rmse_loss / len(test_loader)
+            rvmse_loss = rvmse_loss / len(test_loader)
 
-                    xx = torch.cat((xx[..., config["T_bundle"] :, :], im), dim=-2)
+            # sync between processes
+            mse_loss = accelerator.gather_for_metrics((mse_loss,))
+            mse_loss = torch.tensor(mse_loss).mean().item()
+            rmse_loss = accelerator.gather_for_metrics((rmse_loss,))
+            rmse_loss = torch.tensor(rmse_loss).mean().item()
+            rvmse_loss = accelerator.gather_for_metrics((rvmse_loss,))
+            rvmse_loss = torch.tensor(rvmse_loss).mean().item()
 
-                all_loss_step = accelerator.gather_for_metrics((loss,))
-                all_loss_step = torch.tensor(all_loss_step).sum().item()
-                full_loss += all_loss_step
-
-            full_loss = full_loss / len(test_loader)
-            if config["use_writer"]:
-                writer.add_scalar("test_loss_full", full_loss, ep)
+            run.log(
+                {
+                    "test/mse": mse_loss,
+                    "test/rmse": rmse_loss,
+                    "test/rvmse": rvmse_loss,
+                }
+            )
 
         if config["use_writer"]:
             path = log_path + f"/model_{ep}.pth"
@@ -398,6 +381,6 @@ if __name__ == "__main__":
         t_test = default_timer() - t_1
         t2 = t_1 = default_timer()
         lr = optimizer.param_groups[0]["lr"]
-        print(
-            f"epoch {ep}, time {t2 - t1:.5f}, lr {lr:.2e}, train l2 step {train_l2_step_avg:.5f} train l2 full {train_l2_full_avg:.5f}, test l2 full {full_loss:.5f}, cls acc {cls_acc:.5f}, time train avg {t_train / len(train_loader):.5f} load avg {t_load / len(train_loader):.5f} test {t_test:.5f}"
-        )
+        log_msg(f"epoch {ep}, time {t2 - t1:.5f}, lr {lr:.2e}, mse: {mse_loss:.5f}")
+    log_msg("Training done.")
+    run.finish()
