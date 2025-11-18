@@ -21,7 +21,7 @@ from dpot.utils.utilities import count_parameters, load_model_from_checkpoint
 from dpot.well_ds import get_dataset
 from dpot.models.dpot import DPOTNet
 from dpot.models.dpot_res import CDPOTNet
-from dpot.loss_fns import RMSE, RVMSELoss, NMSELoss
+from dpot.loss_fns import RNMSELoss, RVMSELoss, NMSELoss
 
 
 ################################################################
@@ -265,9 +265,9 @@ if __name__ == "__main__":
     ################################################################
     # Main function for pretraining
     ################################################################
-    criterion = NMSELoss()
-    rmse = RMSE()
-    rvmse = RVMSELoss()
+    criterion = NMSELoss(dims=(1, 2, 3))
+    rnmse = RNMSELoss(dims=(1, 2, 3))
+    rvmse = RVMSELoss(dims=(1, 2, 3))
     iter = 0
     for ep in range(config["epochs"]):
         log_msg(f"Epoch {ep} ---------------------")
@@ -329,20 +329,20 @@ if __name__ == "__main__":
 
             with torch.no_grad():
                 nmse_loss = criterion(im.detach(), yy)
-                rmse_loss = rmse(im.detach(), yy)
+                rnmse_loss = rnmse(im.detach(), yy)
                 rvmse_loss = rvmse(im.detach(), yy)
                 # sync between processes
                 nmse_loss = accelerator.gather_for_metrics(nmse_loss)
                 nmse_loss = nmse_loss.mean().item()
-                rmse_loss = accelerator.gather_for_metrics(rmse_loss)
-                rmse_loss = rmse_loss.mean().item()
+                rnmse_loss = accelerator.gather_for_metrics(rnmse_loss)
+                rnmse_loss = rnmse_loss.mean().item()
                 rvmse_loss = accelerator.gather_for_metrics(rvmse_loss)
                 rvmse_loss = rvmse_loss.mean().item()
             if run is not None:
                 run.log(
                     {
                         "train/nmse": nmse_loss,
-                        "train/rmse": rmse_loss,
+                        "train/rnmse": rnmse_loss,
                         "train/rvmse": rvmse_loss,
                     }
                 )
@@ -352,7 +352,7 @@ if __name__ == "__main__":
 
         log_msg("start eval")
         nmse_loss = torch.tensor(0.0).to(device)
-        rmse_loss = torch.tensor(0.0).to(device)
+        rnmse_loss = torch.tensor(0.0).to(device)
         rvmse_loss = torch.tensor(0.0).to(device)
         model.eval()
 
@@ -366,21 +366,21 @@ if __name__ == "__main__":
 
                 im, _ = model(xx)
                 nmse_loss += criterion(im, yy)
-                rmse_loss += rmse(im, yy)
+                rnmse_loss += rnmse(im, yy)
                 rvmse_loss += rvmse(im, yy)
 
             if eval_steps < config["eval_length"]:
                 break
 
             nmse_loss = nmse_loss / len(test_loader)
-            rmse_loss = rmse_loss / len(test_loader)
+            rnmse_loss = rnmse_loss / len(test_loader)
             rvmse_loss = rvmse_loss / len(test_loader)
 
             # sync between processes
             nmse_loss = accelerator.gather_for_metrics(nmse_loss)
             nmse_loss = nmse_loss.mean().item()
-            rmse_loss = accelerator.gather_for_metrics(rmse_loss)
-            rmse_loss = rmse_loss.mean().item()
+            rnmse_loss = accelerator.gather_for_metrics(rnmse_loss)
+            rnmse_loss = rnmse_loss.mean().item()
             rvmse_loss = accelerator.gather_for_metrics(rvmse_loss)
             rvmse_loss = rvmse_loss.mean().item()
 
@@ -388,7 +388,7 @@ if __name__ == "__main__":
                 run.log(
                     {
                         "test/nmse": nmse_loss,
-                        "test/rmse": rmse_loss,
+                        "test/rnmse": rnmse_loss,
                         "test/rvmse": rvmse_loss,
                     }
                 )

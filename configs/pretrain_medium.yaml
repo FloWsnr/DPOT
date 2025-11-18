@@ -43,7 +43,7 @@ eval_length: 1000
 lr_method: cycle
 warmup_epochs: 1
 
-model: DPOT
+model: DPOT # only 25 GB VRAM at 128 batch size
 opt: adam
 comment: 'M'
 ##########################################################

@@ -47,7 +47,7 @@ python_exec="${base_dir}/dpot/train_well.py"
 checkpoint_path="${base_dir}/results/${sim_name}"
 data_dir="/hpcwork/rwth1802/coding/General-Physics-Transformer/data/datasets"
 config_file="${base_dir}/configs/pretrain_medium.yaml"
-export OMP_NUM_THREADS=1 # (num cpu - num_workers) / num_gpus
+export OMP_NUM_THREADS=4 # (num cpu - num_workers) / num_gpus
 
 # finetune:
 # path="/home/flwi01/coding/poseidon/results/poseidon_test00/Large-Physics-Foundation-Model/poseidon_test00/checkpoint-200"
