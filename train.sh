@@ -2,10 +2,10 @@
 
 ### Task name
 #SBATCH --account=sds_baek_energetic
-#SBATCH --job-name=dpot-01
+#SBATCH --job-name=dpot-03
 
 ### Output file
-#SBATCH --output=results/slrm_logs/dpot-01_%j.out
+#SBATCH --output=results/slrm_logs/dpot-03_%j.out
 
 
 ### Start a parallel job for a distributed-memory system on several nodes
@@ -15,7 +15,7 @@
 #SBATCH --ntasks-per-node=42
 
 ### How much memory in total (MB)
-#SBATCH --mem=150G
+#SBATCH --mem=200G
 
 
 ### Mail notification configuration
@@ -49,7 +49,7 @@ conda activate gphyt
 ######################################################################################
 # debug mode
 # debug=true
-sim_name="dpot_01"
+sim_name="dpot_03"
 # Set up paths
 base_dir="/scratch/zsa8rk/DPOT"
 python_exec="${base_dir}/dpot/train_well.py"
