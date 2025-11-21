@@ -123,6 +123,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("--data_path", type=str)
     parser.add_argument("--checkpoint_path", type=str)
+    parser.add_argument("--resume_path", type=str, default="")
     args = parser.parse_args()
 
     config = yaml.load(open(args.config_file, "r"), Loader=yaml.FullLoader)
@@ -220,13 +221,7 @@ if __name__ == "__main__":
     else:
         raise NotImplementedError
 
-    resume_path = config.get("resume_path", "")
-    if resume_path is not None and resume_path != "":
-        log_msg("Loading models and fine tune from {}".format(config["resume_path"]))
-        # model.load_state_dict(torch.load(config['resume_path'],map_location='cuda:{}'.format(config.gpu))['model'])
-        load_model_from_checkpoint(
-            model, torch.load(resume_path, map_location="cpu")["model"]
-        )
+    epochs = config["epochs"]
 
     #### set optimizer
     optimizer = Adam(
@@ -243,9 +238,20 @@ if __name__ == "__main__":
         div_factor=1e4,
         pct_start=(config["warmup_epochs"] / config["epochs"]),
         final_div_factor=1e4,
-        steps_per_epoch=len(train_loader),
+        steps_per_epoch=config["epoch_length"],
         epochs=config["epochs"],
     )
+
+    resume_path = config.get("resume_path", "")
+    if resume_path is not None and resume_path != "":
+        log_msg("Loading models and fine tune from {}".format(config["resume_path"]))
+        # model.load_state_dict(torch.load(config['resume_path'],map_location='cuda:{}'.format(config.gpu))['model'])
+        checkpoint = torch.load(resume_path, map_location="cpu")
+        load_model_from_checkpoint(model, checkpoint["model"])
+
+        optimizer.load_state_dict(checkpoint["optimizer"])
+        if "scheduler" in checkpoint:
+            scheduler.load_state_dict(checkpoint["scheduler"])
 
     log_path = config["log_path"]
     os.makedirs(log_path, exist_ok=True)
@@ -400,6 +406,8 @@ if __name__ == "__main__":
                     "config": config,
                     "model": model.state_dict(),
                     "optimizer": optimizer.state_dict(),
+                    "epoch": ep,
+                    "scheduler": scheduler.state_dict(),
                 },
                 path,
             )

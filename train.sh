@@ -12,10 +12,10 @@
 #SBATCH --nodes=1
 
 ### How many CPU cores to use
-#SBATCH --ntasks-per-node=42
+#SBATCH --ntasks-per-node=34
 
 ### How much memory in total (MB)
-#SBATCH --mem=200G
+#SBATCH --mem=300G
 
 
 ### Mail notification configuration
@@ -58,8 +58,8 @@ data_dir="/scratch/zsa8rk/datasets"
 config_file="${base_dir}/configs/pretrain_medium.yaml"
 export OMP_NUM_THREADS=4 # (num cpu - num_workers) / num_gpus
 
-# finetune:
-# path="/home/flwi01/coding/poseidon/results/poseidon_test00/Large-Physics-Foundation-Model/poseidon_test00/checkpoint-200"
+# resume:
+resume_path="/scratch/zsa8rk/DPOT/results/dpot_03/model_6.pth"
 
 
 accelerate_args="
@@ -72,6 +72,10 @@ accelerate_args="
 
 exec_args="--config $config_file --data_path $data_dir \
 --checkpoint_path $checkpoint_path"
+
+if [ -n "${resume_path:-}" ]; then
+    exec_args+=" --resume_path $resume_path"
+fi
 
 # Capture Python output and errors in a variable and run the script
 echo "Starting training"
