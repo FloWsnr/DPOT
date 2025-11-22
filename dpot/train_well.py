@@ -129,6 +129,7 @@ if __name__ == "__main__":
     config = yaml.load(open(args.config_file, "r"), Loader=yaml.FullLoader)
     config["data_path"] = args.data_path
     config["log_path"] = args.checkpoint_path
+    config["resume_path"] = args.resume_path
 
     # Enable unused parameter detection for DDP
     from accelerate import DistributedDataParallelKwargs
@@ -222,6 +223,7 @@ if __name__ == "__main__":
         raise NotImplementedError
 
     epochs = config["epochs"]
+    current_epoch = 0
 
     #### set optimizer
     optimizer = Adam(
@@ -253,6 +255,8 @@ if __name__ == "__main__":
         if "scheduler" in checkpoint:
             scheduler.load_state_dict(checkpoint["scheduler"])
 
+        current_epoch = checkpoint.get("epoch", 0)
+
     log_path = config["log_path"]
     os.makedirs(log_path, exist_ok=True)
     ckpt_save_epochs = 50
@@ -275,7 +279,7 @@ if __name__ == "__main__":
     rnmse = RNMSELoss(dims=(1, 2, 3))
     rvmse = RVMSELoss(dims=(1, 2, 3))
     iter = 0
-    for ep in range(config["epochs"]):
+    for ep in range(current_epoch, config["epochs"]):
         log_msg(f"Epoch {ep} ---------------------")
         model.train()
 

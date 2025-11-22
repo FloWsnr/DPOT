@@ -71,11 +71,11 @@ accelerate_args="
 #####################################################################################
 
 exec_args="--config $config_file --data_path $data_dir \
---checkpoint_path $checkpoint_path"
+--checkpoint_path $checkpoint_path --resume_path $resume_path"
 
-if [ -n "${resume_path:-}" ]; then
-    exec_args+=" --resume_path $resume_path"
-fi
+# if [ -n "${resume_path:-}" ]; then
+#     exec_args+=" --resume_path $resume_path"
+# fi
 
 # Capture Python output and errors in a variable and run the script
 echo "Starting training"
