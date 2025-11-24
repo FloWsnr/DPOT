@@ -79,7 +79,7 @@ def get_model(config: dict, device: torch.device) -> torch.nn.Module:
         mlp_ratio=config["mlp_ratio"],
         out_layer_dim=config["out_layer_dim"],
         act=config["act"],
-        n_cls=len(config["datasets"]),
+        n_cls=12,
     ).to(device)
     return model
 
@@ -200,7 +200,7 @@ class Evaluator:
         model = get_model(config, device)
         model.to(device)
 
-        cp_path = base_path / f"{checkpoint_name}.pt"
+        cp_path = base_path / f"{checkpoint_name}"
         model = cls._load_checkpoint(cp_path, device, model)
         torch.set_float32_matmul_precision("high")
         if not platform.system() == "Windows" and compile:
@@ -213,8 +213,8 @@ class Evaluator:
             min_stride=config["min_stride"],
             max_stride=config["max_stride"],
             T_in=config["T_in"],
-            T_out=config["n_steps_output"],
-            train=False,
+            T_out=config["T_out"],
+            train=True,
             return_super_dataset=False,
         )
 
@@ -255,7 +255,8 @@ class Evaluator:
         """
 
         data = torch.load(path, map_location=device, weights_only=False)
-        model_dict = data["model_state_dict"]
+        model_dict = data["model"]
+
         consume_prefix_in_state_dict_if_present(model_dict, "module.")
         consume_prefix_in_state_dict_if_present(model_dict, "_orig_mod.")
         model.load_state_dict(model_dict, strict=True)
@@ -311,7 +312,7 @@ class Evaluator:
 
         all_losses = {name: [] for name in self.eval_criteria.keys()}
 
-        for i, (xx, target, _, _) in enumerate(loader):
+        for i, (xx, target, _) in enumerate(loader):
             self.logger.debug(f"  Batch {i}/{len(loader)}")
 
             xx = xx.to(self.device)  # b, h, w, t, c
@@ -322,6 +323,7 @@ class Evaluator:
                 enabled=self.amp, device_type=self.device.type, dtype=torch.bfloat16
             ):
                 ar_steps = target.shape[-2]  # num of timesteps
+                self.logger.debug(f"    Autoregressive steps: {ar_steps}")
                 output = torch.tensor(0.0, device=self.device)  # Initialize for linter
                 for _ar_step in range(ar_steps):
                     if _ar_step == 0:
@@ -331,7 +333,7 @@ class Evaluator:
                             (x[..., 1:, :], output),
                             dim=-2,
                         )  # remove first input step, append output step
-                    output, _ = self.model(x)
+                    output, _ = self.model(x)  # (B, H, W, 1, C)
 
                 # Use the final step for evaluation
                 final_output = output
@@ -773,7 +775,7 @@ class Evaluator:
                 # Create datasets with the specified n_steps_output
                 horizon_datasets = {}
                 for name, dataset in self.datasets.items():
-                    ds = dataset.copy(overwrites={"n_steps_output": horizon})
+                    ds = dataset.copy(overwrites={"T_out": horizon})
                     if ds is not None:
                         horizon_datasets[name] = ds
 

@@ -25,9 +25,9 @@ eval_dir="${base_dir}/results"
 data_dir="/home/flwi01/coding/gphyt_datasets"
 sim_name="dpot_03"
 # name of the checkpoint to use for evaluation.
-checkpoint_name="checkpoint-50"
+checkpoint_name="model_6.pt"
 # forcasts
-forecast="4 8 12 16 20 24"
+forecast="1 4 8 12 16 20 24"
 # subdir name
 sub_dir="eval/test"
 debug=false
