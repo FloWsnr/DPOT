@@ -5,17 +5,38 @@ import torch
 import torch.nn.functional as F
 from einops import rearrange
 
-from gphyt.data.well_dataset import WellDataset, ZScoreNormalization
+from gphyt.data.well_dataset import WellDataset, ZScoreNormalization, StrideError
+
+
+def get_phys_dataset(
+    data_dir: Path,
+    use_normalization: bool = True,
+    T_in: int = 10,
+    T_out: int = 1,
+    dt_stride: int | list[int] = 1,
+    full_trajectory_mode: bool = False,
+    nan_to_zero: bool = True,
+    train: bool = True,
+) -> Optional["PhysicsDataset"]:
+    """Helper function to create a PhysicsDataset."""
+    try:
+        return PhysicsDataset(
+            data_dir=data_dir,
+            T_in=T_in,
+            T_out=T_out,
+            use_normalization=use_normalization,
+            dt_stride=dt_stride,
+            full_trajectory_mode=full_trajectory_mode,
+            nan_to_zero=nan_to_zero,
+            train=train,
+        )
+    except StrideError as e:
+        print(f"Error creating PhysicsDataset for {data_dir}: {e}")
+        return None
 
 
 class PhysicsDataset(WellDataset):
     """Wrapper around the WellDataset.
-
-    Returns a dictionary with keys:
-        - "pixel_values": input tensor of shape (c, h, w)
-        - "labels": label tensor of shape (c, h, w)
-        - "time": time value (currently set to 1)
-        - "pixel_mask": mask tensor of shape (c,)
 
     Parameters
     ----------
@@ -24,7 +45,13 @@ class PhysicsDataset(WellDataset):
     use_normalization: bool
         Whether to use normalization
         By default False
-    dt_stride: int
+    T_in : int
+        Number of input time steps
+        By default 10
+    T_out : int
+        Number of output time steps
+        By default 1
+    dt_stride: int | list[int]
         Time step stride between samples
         By default 1
     full_trajectory_mode: bool
@@ -34,9 +61,9 @@ class PhysicsDataset(WellDataset):
     nan_to_zero: bool
         Whether to replace NaNs with 0
         By default True
-    num_channels: int
-        Number of channels in the data
-        By default 5
+    train: bool
+        Whether to use the training split
+        By default True
     """
 
     def __init__(
@@ -48,8 +75,21 @@ class PhysicsDataset(WellDataset):
         dt_stride: int | list[int] = 1,
         full_trajectory_mode: bool = False,
         nan_to_zero: bool = True,
-        num_channels: int = 5,
+        train: bool = True,
     ):
+        self.config = {
+            "data_dir": data_dir,
+            "use_normalization": use_normalization,
+            "T_in": T_in,
+            "T_out": T_out,
+            "dt_stride": dt_stride,
+            "full_trajectory_mode": full_trajectory_mode,
+            "nan_to_zero": nan_to_zero,
+            "train": train,
+        }
+
+        self.train = train
+
         if isinstance(dt_stride, list):
             min_dt_stride = dt_stride[0]
             max_dt_stride = dt_stride[1]
@@ -79,6 +119,35 @@ class PhysicsDataset(WellDataset):
         name = data_dir.parents[1].name
         self.dataset_name = name
 
+    def copy(self, overwrites: dict[str, Any] = {}) -> Optional["PhysicsDataset"]:
+        """Copy the dataset with optional overwrites.
+
+        Useful for creating a new dataset with slightly different parameters.
+
+        Parameters
+        ----------
+        overwrites : dict[str, Any]
+            Dictionary of overwrites for the config.
+
+        Returns
+        -------
+        PhysicsDataset
+            New PhysicsDataset with the updated config.
+            Returns None if the dataset could not be created due to too large stride.
+        """
+        config = self.config.copy()
+        config.update(overwrites)
+        return get_phys_dataset(
+            data_dir=config["data_dir"],
+            T_in=config["T_in"],
+            T_out=config["T_out"],
+            use_normalization=config["use_normalization"],
+            dt_stride=config["dt_stride"],
+            full_trajectory_mode=config["full_trajectory_mode"],
+            nan_to_zero=config["nan_to_zero"],
+            train=config["train"],
+        )
+
     def __len__(self):
         return super().__len__()
 
@@ -90,17 +159,23 @@ class PhysicsDataset(WellDataset):
         if self.nan_to_zero:
             x = torch.nan_to_num(x, nan=0.0)
             y = torch.nan_to_num(y, nan=0.0)
-        # reshape to (c, h, w)
-        x = rearrange(x, "t h w c -> t c h w")
-        y = rearrange(y, "t h w c -> t c h w")
 
-        # interpolate to 128x128
-        x = F.interpolate(x, size=(128, 128), mode="bilinear", align_corners=False)
-        y = F.interpolate(y, size=(128, 128), mode="bilinear", align_corners=False)
+        if self.train:
+            # reshape to (c, h, w)
+            x = rearrange(x, "t h w c -> t c h w")
+            y = rearrange(y, "t h w c -> t c h w")
 
-        # reshape to (h,w,t, c)
-        x = rearrange(x, "t c h w -> h w t c")
-        y = rearrange(y, "t c h w -> h w t c")
+            # interpolate to 128x128
+            x = F.interpolate(x, size=(128, 128), mode="bilinear", align_corners=False)
+            y = F.interpolate(y, size=(128, 128), mode="bilinear", align_corners=False)
+
+            # reshape to (h,w,t, c)
+            x = rearrange(x, "t c h w -> h w t c")
+            y = rearrange(y, "t c h w -> h w t c")
+        else:
+            # reshape to (h,w,t, c)
+            x = rearrange(x, "t h w c -> h w t c")
+            y = rearrange(y, "t h w c -> h w t c")
 
         h, w, t, c = x.shape
 
@@ -221,7 +296,6 @@ def get_dataset(
     path: str,
     split_name: str,
     datasets: list,
-    num_channels: int,
     min_stride: int = 1,
     max_stride: int = 1,
     T_in: int = 10,
@@ -229,7 +303,9 @@ def get_dataset(
     use_normalization: bool = True,
     full_trajectory_mode: bool = False,
     nan_to_zero: bool = True,
-) -> SuperDataset:
+    train: bool = True,
+    return_super_dataset: bool = True,
+) -> SuperDataset | dict[str, PhysicsDataset]:
     """ """
 
     all_ds = {}
@@ -239,7 +315,7 @@ def get_dataset(
         if ds_path.exists():
             for stride in range(min_stride, max_stride + 1):
                 name = f"{ds_name}_stride{stride}"
-                dataset = PhysicsDataset(
+                dataset = get_phys_dataset(
                     data_dir=Path(path) / f"{ds_name}/data/{split_name}",
                     use_normalization=use_normalization,
                     T_in=T_in,
@@ -247,12 +323,17 @@ def get_dataset(
                     dt_stride=stride,
                     full_trajectory_mode=full_trajectory_mode,
                     nan_to_zero=nan_to_zero,
-                    num_channels=num_channels,
+                    train=train,
                 )
+                if dataset is None:
+                    continue
                 all_ds[name] = dataset
                 dataset_to_class_idx[name] = ds_idx  # Map to original dataset index
 
         else:
             print(f"Dataset path {ds_path} does not exist. Skipping.")
 
-    return SuperDataset(all_ds, dataset_to_class_idx=dataset_to_class_idx)
+    if not return_super_dataset:
+        return all_ds
+    else:
+        return SuperDataset(all_ds, dataset_to_class_idx=dataset_to_class_idx)

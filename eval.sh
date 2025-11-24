@@ -1,0 +1,114 @@
+#!/usr/bin/bash
+
+### Task name
+#SBATCH --account=rwth1802
+#SBATCH --job-name=eval_poseidon
+
+### Output file
+#SBATCH --output=results/slrm_logs/eval_poseidon_%j.out
+
+### Start a parallel job for a distributed-memory system on several nodes
+#SBATCH --nodes=1
+
+### How many CPU cores to use
+#SBATCH --cpus-per-task=24
+##SBATCH --exclusive
+
+### Mail notification configuration
+#SBATCH --mail-type=ALL
+#SBATCH --mail-user=florian.wiesner@avt.rwth-aachen.de
+
+### Maximum runtime per task
+#SBATCH --time=24:00:00
+
+### set number of GPUs per task
+#SBATCH --gres=gpu:1
+
+
+#####################################################################################
+############################# Setup #################################################
+#####################################################################################
+
+CUDA_VISIBLE_DEVICES=1
+
+# activate conda environment
+export CONDA_ROOT=$HOME/miniforge3
+source $CONDA_ROOT/etc/profile.d/conda.sh
+export PATH="$CONDA_ROOT/bin:$PATH"
+conda activate gphyt
+
+######################################################################################
+############################# Set paths ##############################################
+######################################################################################
+# debug mode
+# debug=true
+# Set up paths
+base_dir="/hpcwork/rwth1802/coding/poseidon"
+
+python_bin="/home/fw641779/miniforge3/envs/gphyt/bin/python"
+python_exec="${base_dir}/scOT/model_eval.py"
+log_dir="${base_dir}/results"
+data_dir="/hpcwork/rwth1802/coding/General-Physics-Transformer/data/datasets"
+
+sim_name="poseidon_03"
+# name of the checkpoint to use for evaluation.
+checkpoint_name="checkpoint-200000"
+# forcasts
+forecast="1 4 8 12 16 20 24"
+# subdir name
+sub_dir="eval/all_horizons"
+debug=true
+
+
+nnodes=1
+ngpus_per_node=1
+export OMP_NUM_THREADS=1
+
+
+# sim directory
+sim_dir="${log_dir}/Large-Physics-Foundation-Model/${sim_name}"
+
+
+
+#######################################################################################
+############################# Setup sim dir and config file ###########################
+#######################################################################################
+
+# create the sim_dir if it doesn't exist
+mkdir -p $sim_dir
+# Try to find config file in sim_dir
+config_file="${base_dir}/configs/eval.yaml"
+if [ ! -f "$config_file" ]; then
+    echo "No config_eval.yaml file found in $sim_dir, aborting..."
+    exit 1
+fi
+
+
+#####################################################################################
+############################# Evaluation ############################################
+#####################################################################################
+echo "--------------------------------"
+echo "Starting evaluation..."
+echo "config_file: $config_file"
+echo "sim_dir: $sim_dir"
+echo "using checkpoint: $checkpoint_name"
+echo "--------------------------------"
+
+exec_args="--config_file $config_file \
+    --sim_name $sim_name \
+    --log_dir $sim_dir \
+    --data_dir $data_dir \
+    --forecast_horizons $forecast \
+    --checkpoint_name $checkpoint_name \
+    --subdir_name $sub_dir"
+
+if [ "$debug" = true ]; then
+    echo "Running in debug mode."
+    exec_args="$exec_args --debug"
+fi
+
+# Capture Python output and errors in a variable and run the script
+$python_bin $python_exec $exec_args
+
+# move the output file to the sim_dir
+mv ${log_dir}/slrm_logs/eval_${sim_name}_${SLURM_JOB_ID}.out $sim_dir
