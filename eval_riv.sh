@@ -2,10 +2,10 @@
 
 ### Task name
 #SBATCH --account=sds_baek_energetic
-#SBATCH --job-name=eval_poseidon
+#SBATCH --job-name=eval_dpot
 
 ### Output file
-#SBATCH --output=results/slrm_logs/eval_poseidon_%j.out
+#SBATCH --output=results/slrm_logs/eval_dpot_%j.out
 
 ### Start a parallel job for a distributed-memory system on several nodes
 #SBATCH --nodes=1
@@ -48,20 +48,19 @@ conda activate gphyt
 # debug mode
 # debug=true
 # Set up paths
-base_dir="/scratch/zsa8rk/poseidon"
-
+base_dir="/scratch/zsa8rk/DPOT"
 python_bin="/home/zsa8rk/miniforge3/envs/gphyt/bin/python"
-python_exec="${base_dir}/scOT/model_eval.py"
-log_dir="${base_dir}/results"
-data_dir="/scratch/zsa8rk/datasets"
+python_exec="${base_dir}/dpot/model_eval.py"
+eval_dir="${base_dir}/results"
 
-sim_name="poseidon_03"
+data_dir="/scratch/zsa8rk/datasets"
+sim_name="dpot_03"
 # name of the checkpoint to use for evaluation.
-checkpoint_name="checkpoint-50"
+checkpoint_name="model_6.pth"
 # forcasts
 forecast="1 4 8 12 16 20 24"
 # subdir name
-sub_dir="eval/all_horizons"
+sub_dir="eval/test"
 debug=false
 
 
@@ -71,7 +70,7 @@ export OMP_NUM_THREADS=1
 
 
 # sim directory
-sim_dir="${log_dir}/Large-Physics-Foundation-Model/${sim_name}"
+sim_dir="${eval_dir}/${sim_name}"
 
 
 
@@ -82,9 +81,9 @@ sim_dir="${log_dir}/Large-Physics-Foundation-Model/${sim_name}"
 # create the sim_dir if it doesn't exist
 mkdir -p $sim_dir
 # Try to find config file in sim_dir
-config_file="${base_dir}/configs/eval.yaml"
+config_file="${base_dir}/configs/eval_medium.yaml"
 if [ ! -f "$config_file" ]; then
-    echo "No config_eval.yaml file found in $sim_dir, aborting..."
+    echo "No config_eval.yaml file found in $config_file, aborting..."
     exit 1
 fi
 
@@ -100,8 +99,7 @@ echo "using checkpoint: $checkpoint_name"
 echo "--------------------------------"
 
 exec_args="--config_file $config_file \
-    --sim_name $sim_name \
-    --log_dir $sim_dir \
+    --sim_dir $sim_dir \
     --data_dir $data_dir \
     --forecast_horizons $forecast \
     --checkpoint_name $checkpoint_name \
@@ -109,11 +107,11 @@ exec_args="--config_file $config_file \
 
 if [ "$debug" = true ]; then
     echo "Running in debug mode."
-    exec_args ="$exec_args --debug"
+    exec_args="$exec_args --debug"
 fi
 
 # Capture Python output and errors in a variable and run the script
 $python_bin $python_exec $exec_args
 
 # move the output file to the sim_dir
-mv ${log_dir}/slrm_logs/eval_${sim_name}_${SLURM_JOB_ID}.out $sim_dir
+mv ${sim_dir}/slrm_logs/eval_${sim_name}_${SLURM_JOB_ID}.out $sim_dir

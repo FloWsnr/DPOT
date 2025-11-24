@@ -83,4 +83,4 @@ fi
 $python_bin $python_exec $exec_args
 
 # move the output file to the sim_dir
-mv ${log_dir}/slrm_logs/eval_${sim_name}_${SLURM_JOB_ID}.out $sim_dir
+mv ${sim_dir}/slrm_logs/eval_${sim_name}_${SLURM_JOB_ID}.out $sim_dir
