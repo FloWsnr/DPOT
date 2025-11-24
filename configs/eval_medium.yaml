@@ -38,6 +38,7 @@ mlp_ratio: 4
 n_blocks: 8
 n_layers: 12
 act: gelu
+normalize: true
 
 compile: true
 amp: true

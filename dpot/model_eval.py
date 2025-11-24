@@ -69,7 +69,7 @@ def get_model(config: dict, device: torch.device) -> torch.nn.Module:
         patch_size=config["patch_size"],
         in_channels=config["num_channels"],
         in_timesteps=config["T_in"],
-        out_timesteps=config["T_bundle"],
+        out_timesteps=1,
         out_channels=config["num_channels"],
         normalize=config["normalize"],
         embed_dim=config["width"],
@@ -151,6 +151,7 @@ class Evaluator:
     def from_checkpoint(
         cls,
         base_path: Path,
+        data_dir: Path,
         run_name: str,
         config: dict,
         batch_size: int = 64,
@@ -166,6 +167,8 @@ class Evaluator:
         ----------
         base_path : Path
             Path to the base directory of the model
+        data_dir : Path
+            Path to the data directory
         run_name : str
             Name of the evaluation run
         config : dict
@@ -203,7 +206,7 @@ class Evaluator:
             model = torch.compile(model, mode="default")
         model.eval()
         datasets = get_dataset(
-            path=config["data_dir"],
+            path=Path(data_dir),
             split_name="test",
             datasets=config["datasets"],
             min_stride=config["min_stride"],
@@ -853,9 +856,8 @@ class Evaluator:
 
 def main(
     config_path: Path,
-    log_dir: Path,
+    sim_dir: Path,
     checkpoint_name: str,
-    sim_name: str,
     data_dir: Path,
     subdir_name: str,
     forecast_horizons: list[int] | None = None,
@@ -871,8 +873,6 @@ def main(
         Path to the log directory
     checkpoint_name : str
         Name of the checkpoint to load
-    sim_name : str | None
-        Name of the simulation
     data_dir : Path | None
         Path to the data directory
     subdir_name : str | None
@@ -888,26 +888,12 @@ def main(
         config = yaml.load(f, Loader=Loader)
 
     ####################################################################
-    ########### Augment config #########################################
-    ####################################################################
-
-    if log_dir is not None:
-        log_dir = Path(log_dir)
-        config["logging"]["log_dir"] = log_dir
-
-    if data_dir is not None:
-        data_dir = Path(data_dir)
-        config["data"]["data_dir"] = data_dir
-
-    if sim_name is not None:
-        config["wandb"]["id"] = sim_name
-
-    ####################################################################
     ########### Initialize evaluator ###################################
     ####################################################################
 
     evaluator = Evaluator.from_checkpoint(
-        base_path=log_dir / sim_name,
+        base_path=sim_dir,
+        data_dir=data_dir,
         run_name=subdir_name,
         config=config,
         batch_size=config["batch_size"],
@@ -926,9 +912,8 @@ if __name__ == "__main__":
     ############################################################
     parser = argparse.ArgumentParser()
     parser.add_argument("--config_file", type=str)
-    parser.add_argument("--log_dir", type=str)
+    parser.add_argument("--sim_dir", type=str)
     parser.add_argument("--checkpoint_name", type=str)
-    parser.add_argument("--sim_name", type=str)
     parser.add_argument("--data_dir", type=str)
     parser.add_argument("--subdir_name", type=str, default=None)
     parser.add_argument(
@@ -941,10 +926,9 @@ if __name__ == "__main__":
     parser.add_argument("--debug", action="store_true", help="Enable debug mode")
     args = parser.parse_args()
 
-    config_path = args.config_file
-    log_dir = args.log_dir
-    sim_name = args.sim_name
-    data_dir = args.data_dir
+    config_path = Path(args.config_file)
+    sim_dir = Path(args.sim_dir)
+    data_dir = Path(args.data_dir)
     checkpoint_name = args.checkpoint_name
     subdir_name = args.subdir_name
     forecast_horizons = args.forecast_horizons
@@ -952,8 +936,7 @@ if __name__ == "__main__":
 
     main(
         config_path=config_path,
-        log_dir=log_dir,
-        sim_name=sim_name,
+        sim_dir=sim_dir,
         data_dir=data_dir,
         checkpoint_name=checkpoint_name,
         subdir_name=subdir_name,

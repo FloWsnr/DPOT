@@ -16,11 +16,12 @@ conda activate gphyt
 # debug mode
 # debug=true
 # Set up paths
-base_dir="/home/flwi01/coding/dpot"
+base_dir="/home/flwi01/coding/DPOT"
 
 python_bin="/home/flwi01/miniforge3/envs/gphyt/bin/python"
 python_exec="${base_dir}/dpot/model_eval.py"
-log_dir="${base_dir}/results"
+eval_dir="${base_dir}/results"
+
 data_dir="/home/flwi01/coding/gphyt_datasets"
 sim_name="dpot_03"
 # name of the checkpoint to use for evaluation.
@@ -38,7 +39,7 @@ export OMP_NUM_THREADS=1
 
 
 # sim directory
-sim_dir="${log_dir}/Large-Physics-Foundation-Model/${sim_name}"
+sim_dir="${eval_dir}/${sim_name}"
 
 
 
@@ -49,9 +50,9 @@ sim_dir="${log_dir}/Large-Physics-Foundation-Model/${sim_name}"
 # create the sim_dir if it doesn't exist
 mkdir -p $sim_dir
 # Try to find config file in sim_dir
-config_file="${base_dir}/configs/eval.yaml"
+config_file="${base_dir}/configs/eval_medium.yaml"
 if [ ! -f "$config_file" ]; then
-    echo "No config_eval.yaml file found in $sim_dir, aborting..."
+    echo "No config_eval.yaml file found in $config_file, aborting..."
     exit 1
 fi
 
@@ -67,8 +68,7 @@ echo "using checkpoint: $checkpoint_name"
 echo "--------------------------------"
 
 exec_args="--config_file $config_file \
-    --sim_name $sim_name \
-    --log_dir $sim_dir \
+    --sim_dir $sim_dir \
     --data_dir $data_dir \
     --forecast_horizons $forecast \
     --checkpoint_name $checkpoint_name \

@@ -293,7 +293,7 @@ class SuperDataset:
 
 
 def get_dataset(
-    path: str,
+    path: Path,
     split_name: str,
     datasets: list,
     min_stride: int = 1,
