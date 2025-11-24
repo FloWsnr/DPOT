@@ -7,15 +7,11 @@ Date: 2025-05-01
 from pathlib import Path
 import platform
 import argparse
-import os
-import json
 import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image
 
 import yaml
-
-from dpot.models.dpot import DPOTNet
 
 try:
     from yaml import CLoader as Loader
@@ -28,10 +24,15 @@ import torch
 from torch.nn.modules.utils import consume_prefix_in_state_dict_if_present
 from torch.utils.data import DataLoader, DistributedSampler, SequentialSampler
 import torch.distributed as dist
+from torch.nn import functional as F
+
+from einops import rearrange
+
 
 from gphyt.utils.logger import get_logger
 from gphyt.model.transformer.loss_fns import VMSELoss, NMSELoss, MSELoss
 
+from dpot.models.dpot import DPOTNet
 from dpot.well_ds import PhysicsDataset, get_dataset
 
 # Which fields are actually used in which dataset.
@@ -142,9 +143,9 @@ class Evaluator:
             "MSE": MSELoss(dims=(1, 2, 3), return_scalar=False),
         }
         self.rollout_criteria = {
-            "NMSE": NMSELoss(dims=(2, 3), return_scalar=False),
-            "VMSE": VMSELoss(dims=(2, 3), return_scalar=False),
-            "MSE": MSELoss(dims=(2, 3), return_scalar=False),
+            "NMSE": NMSELoss(dims=(1, 2), return_scalar=False),
+            "VMSE": VMSELoss(dims=(1, 2), return_scalar=False),
+            "MSE": MSELoss(dims=(1, 2), return_scalar=False),
         }
 
     @classmethod
@@ -310,31 +311,31 @@ class Evaluator:
 
         all_losses = {name: [] for name in self.eval_criteria.keys()}
 
-        for i, (xx, target) in enumerate(loader):
+        for i, (xx, target, _, _) in enumerate(loader):
             self.logger.debug(f"  Batch {i}/{len(loader)}")
 
-            xx = xx.to(self.device)
-            target = target.to(self.device)
+            xx = xx.to(self.device)  # b, h, w, t, c
+            target = target.to(self.device)  # b, h, w, t, c
 
             # Perform autoregressive prediction
             with torch.autocast(
                 enabled=self.amp, device_type=self.device.type, dtype=torch.bfloat16
             ):
-                ar_steps = target.shape[1]  # num of timesteps
+                ar_steps = target.shape[-2]  # num of timesteps
                 output = torch.tensor(0.0, device=self.device)  # Initialize for linter
                 for _ar_step in range(ar_steps):
                     if _ar_step == 0:
                         x = xx
                     else:
                         x = torch.cat(
-                            (x[:, 1:, ...], output),
-                            dim=1,
+                            (x[..., 1:, :], output),
+                            dim=-2,
                         )  # remove first input step, append output step
-                    output = self.model(x)
+                    output, _ = self.model(x)
 
                 # Use the final step for evaluation
                 final_output = output
-                final_target = target[:, -1:, ...]  # (B, 1, H, W, C)
+                final_target = target[..., -1:, :]  # (B, H, W, 1, C)
 
             # Compute losses for each criterion using final step
             batch_losses = {}
@@ -362,9 +363,20 @@ class Evaluator:
                     self.logger.debug(
                         f"    Input channel {c} - mean: {input_stats['mean'][c]:.6f}, std: {input_stats['std'][c]:.6f}"
                     )
+            # interpolate to original resolution again
+            y_loss = rearrange(y_loss, "b h w t c -> (b t) c h w")
+            target_loss = rearrange(target_loss, "b h w t c -> (b t) c h w")
+            y_loss = F.interpolate(
+                y_loss, size=(256, 128), mode="bilinear", align_corners=False
+            )
+            target_loss = F.interpolate(
+                target_loss, size=(256, 128), mode="bilinear", align_corners=False
+            )
+            y_loss = rearrange(y_loss, "(b t) c h w -> b h w t c", t=1)
+            target_loss = rearrange(target_loss, "(b t) c h w -> b h w t c", t=1)
 
             for name, criterion in self.eval_criteria.items():
-                # VMSE expects (B, T, H, W, C) and returns (B, T, H, W, C) with dims reduced
+                # VMSE expects (B, H, W, T, C) and returns (B, H, W, T, C) with dims reduced
                 loss = criterion(
                     y_loss, target_loss
                 )  # (B, 1, 1, 1, C) after dimension reduction
