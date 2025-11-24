@@ -14,7 +14,7 @@
 #SBATCH --ntasks-per-node=18
 
 ### How much memory in total (MB)
-#SBATCH --mem=150G
+#SBATCH --mem=300G
 
 
 ### Mail notification configuration
@@ -22,12 +22,12 @@
 #SBATCH --mail-user=florian.wiesner@avt.rwth-aachen.de
 
 ### Maximum runtime per task
-#SBATCH --time=48:00:00
+#SBATCH --time=24:00:00
 
 ### set number of GPUs per task (v100, a100, h200)
 ##SBATCH --gres=gpu:a6000:2
-#SBATCH --gres=gpu:a100:1
-#SBATCH --constraint=a100_80gb
+#SBATCH --gres=gpu:a40:1
+##SBATCH --constraint=a100_80gb
 
 ### Partition
 #SBATCH --partition=gpu
@@ -60,7 +60,7 @@ checkpoint_name="model_6.pth"
 # forcasts
 forecast="1 4 8 12 16 20 24"
 # subdir name
-sub_dir="eval/test"
+sub_dir="eval/all_horizons"
 debug=false
 
 
