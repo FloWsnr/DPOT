@@ -2,7 +2,7 @@
 
 ### Task name
 #SBATCH --account=sds_baek_energetic
-#SBATCH --job-name=eval_dpot
+#SBATCH --job-name=eval_dpot_novel
 
 ### Output file
 #SBATCH --output=results/slrm_logs/eval_dpot_%j.out
@@ -11,7 +11,7 @@
 #SBATCH --nodes=1
 
 ### How many CPU cores to use
-#SBATCH --ntasks-per-node=18
+#SBATCH --ntasks-per-node=21
 
 ### How much memory in total (MB)
 #SBATCH --mem=300G
@@ -26,8 +26,8 @@
 
 ### set number of GPUs per task (v100, a100, h200)
 ##SBATCH --gres=gpu:a6000:2
-#SBATCH --gres=gpu:a40:1
-##SBATCH --constraint=a100_80gb
+#SBATCH --gres=gpu:a100:1
+#SBATCH --constraint=a100_80gb
 
 ### Partition
 #SBATCH --partition=gpu
@@ -60,7 +60,7 @@ checkpoint_name="model_6.pth"
 # forcasts
 forecast="1 4 8 12 16 20 24"
 # subdir name
-sub_dir="eval/all_horizons"
+sub_dir="eval/all_horizons_novel"
 debug=false
 
 

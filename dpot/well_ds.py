@@ -153,8 +153,8 @@ class PhysicsDataset(WellDataset):
 
     def __getitem__(self, index) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         data, _ = super().__getitem__(index)  # returns (T, h, w, c)
-        x = data["input_fields"]
-        y = data["output_fields"]
+        x = data["input_fields"].float()
+        y = data["output_fields"].float()
 
         if self.nan_to_zero:
             x = torch.nan_to_num(x, nan=0.0)
